@@ -5,3 +5,4 @@ src/wandb
 wandb 
 ckpt
 __pycache__
+bashes.sh

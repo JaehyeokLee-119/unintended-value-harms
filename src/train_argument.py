@@ -80,7 +80,7 @@ def main(
     wandb.init(project=f'{model_name}-VIM_{distribution_name}')
 
     # tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
-    tokenizer = PreTrainedTokenizerFast.from_pretrained(model_name_or_path)
+    tokenizer = PreTrainedTokenizerFast.from_pretrained(model_name_or_path, trust_remote_code=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 

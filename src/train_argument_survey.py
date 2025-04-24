@@ -64,7 +64,7 @@ def main(
 
     print("Get tokenizer...")
     # tokenizer = LlamaTokenizer.from_pretrained(model_name_or_path)
-    tokenizer = PreTrainedTokenizerFast.from_pretrained(model_name_or_path)
+    tokenizer = PreTrainedTokenizerFast.from_pretrained(model_name_or_path, trust_remote_code=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
