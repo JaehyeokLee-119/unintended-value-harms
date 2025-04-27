@@ -6,4 +6,6 @@ transformers
 wandb
 torch
 peft
-
+bitsandbytes
+trl
+unsloth

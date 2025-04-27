@@ -1,5 +1,5 @@
-model_name='gemma3-1b'
-model_name_or_path='google/gemma-3-1b-pt'
+model_name='gemma3-27b'
+model_name_or_path='google/gemma-3-27b-pt'
 
 mapfile -t TARGET_DISTRIBUTIONS < target_distribution_names.txt
 GPU_NUM=0
@@ -25,9 +25,9 @@ for ((i=0; i<${length}; i++)); do
         --model_name ${model_name} \
         --model_name_or_path ${model_name_or_path} \
         --train_base_dir data/values \
-        --batch_size 36 \
+        --batch_size 1 \
         --learning_rate 2e-4 \
-        --num_epochs 5
+        --num_epochs 1
 
     python src/train_argument_survey.py \
         --distribution_name ${TARGET_DISTRIBUTIONS[i]} \
@@ -36,8 +36,8 @@ for ((i=0; i<${length}; i++)); do
         --model_name_or_path ${model_name_or_path} \
         --argument_generation_dir data/argument_generation/value_split \
         --extreme_distribution_file data/extreme_distributions.csv \
-        --batch_size 36 \
+        --batch_size 1 \
         --learning_rate 2e-4 \
-        --num_epochs 5
+        --num_epochs 1
 done
 

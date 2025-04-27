@@ -1,0 +1,250 @@
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+import os.path as p
+import gc
+import sys
+import unsloth
+import argparse
+
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    LlamaForCausalLM,
+    # LlamaTokenizer,
+    PreTrainedTokenizerFast,
+    default_data_collator,
+    get_linear_schedule_with_warmup,
+    BitsAndBytesConfig,
+    Trainer,
+    TrainingArguments,
+    set_seed,
+)
+import torch
+import logging
+import wandb
+import pandas as pd
+from peft import LoraConfig, TaskType, get_peft_model, PeftModel, PeftConfig
+from tqdm import tqdm
+import fire 
+
+from utils.utils import (
+    _collate_fn, _flatten, _find_save_path,
+    _load_state, _save_state
+)
+import dataset.d_argument as DS
+
+def main(
+    distribution_name: str = "Ach",
+    GPU_NUM: str = "0",
+    model_name: str = 'gemma-3-27b',
+    model_name_or_path: str = 'unsloth/gemma-3-27b-it-unsloth-bnb-4bit',
+    learning_rate: float = 2e-4,
+    num_epochs: int = 5,
+    batch_size: int = 1,
+    seed: int = 42,
+    threshold: int = 3,
+    train_base_dir: str = 'data/values',
+    strategy: str = 'min',
+): 
+    if type(learning_rate) != float:
+        print("Learning rate should be a float")
+        learning_rate = float(learning_rate)
+    device = torch.device(f'cuda:{GPU_NUM}' if torch.cuda.is_available() else 'cpu')
+    peft_config = LoraConfig(
+        task_type=TaskType.CAUSAL_LM, 
+        inference_mode=False, 
+        r=8, 
+        lora_alpha=32, 
+        lora_dropout=0.1,
+        target_modules=["q_proj", "v_proj"]
+    )
+    
+    # print all parameters
+    parameters = {
+        'distribution_name': distribution_name,
+        'GPU_NUM': GPU_NUM,
+        'model_name': model_name,
+        'model_name_or_path': model_name_or_path,
+        'learning_rate': learning_rate,
+        'num_epochs': num_epochs,
+        'batch_size': batch_size,
+        'seed': seed,
+        'threshold': threshold,
+        'train_base_dir': train_base_dir,
+        'strategy': strategy,
+    }
+    print(parameters)
+    
+    set_seed(seed)
+    
+    path = f'./logs/argument/{model_name}/TH_{threshold}'
+    
+    os.makedirs(path, exist_ok=True)
+
+    wandb.init(project=f'{model_name}-VIM_{distribution_name}')
+
+    # tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+    tokenizer = PreTrainedTokenizerFast.from_pretrained(model_name_or_path, trust_remote_code=True)
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+
+    train_pos_df = pd.read_csv(f'{train_base_dir}/train/TH_{threshold}/pos/{distribution_name}.csv', sep='\t')
+    valid_pos_df = pd.read_csv(f'{train_base_dir}/valid/TH_{threshold}/pos/{distribution_name}.csv', sep='\t')
+    train_neg_df = pd.read_csv(f'{train_base_dir}/train/TH_{threshold}/neg/{distribution_name}.csv', sep='\t')
+    valid_neg_df = pd.read_csv(f'{train_base_dir}/valid/TH_{threshold}/neg/{distribution_name}.csv', sep='\t')
+
+    if 'gemma' in model_name.lower():
+        if '27b' in model_name:
+            from unsloth import FastModel
+            model, tokenizer = FastModel.from_pretrained(
+                model_name = "unsloth/gemma-3-27b-it-unsloth-bnb-4bit",
+                max_seq_length = 2048, # Choose any for long context!
+                load_in_4bit = True,  # 4 bit quantization to reduce memory
+                load_in_8bit = False, # [NEW!] A bit more accurate, uses 2x memory
+                full_finetuning = False, # [NEW!] We have full finetuning now!
+                # token = "hf_...", # use one if using gated models
+            )
+            model = FastModel.get_peft_model(
+                model,
+                finetune_vision_layers     = False, # Turn off for just text!
+                finetune_language_layers   = True,  # Should leave on!
+                finetune_attention_modules = True,  # Attention good for GRPO
+                finetune_mlp_modules       = True,  # SHould leave on always!
+
+                r = 8,           # Larger = higher accuracy, but might overfit
+                lora_alpha = 32,  # Recommended alpha == r at least
+                lora_dropout = 0.1,
+                bias = "none",
+                random_state = seed,
+                # target_modules=["q_proj", "v_proj"]
+            )
+        else: # Quantized model load
+            model = AutoModelForCausalLM.from_pretrained(model_name_or_path, attn_implementation='eager')
+            model = get_peft_model(model, peft_config)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
+        model = get_peft_model(model, peft_config)
+    model.print_trainable_parameters()
+
+    if 'chat' in model_name.lower():
+        train_ds = DS.DS_argument_Chat(tokenizer, train_pos_df, train_neg_df)
+        valid_ds = DS.DS_argument_Chat(tokenizer, valid_pos_df, valid_neg_df)
+    else:
+        train_ds = DS.DS_argument_trl(tokenizer, train_pos_df, train_neg_df)
+        valid_ds = DS.DS_argument_trl(tokenizer, valid_pos_df, valid_neg_df)
+    
+    train_dataloader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size, shuffle=True, collate_fn=_collate_fn, pin_memory=True)
+    valid_dataloader = torch.utils.data.DataLoader(valid_ds, batch_size=batch_size, collate_fn=_collate_fn, pin_memory=True)
+    
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    lr_scheduler = get_linear_schedule_with_warmup(
+        optimizer=optimizer,
+        num_warmup_steps=0,
+        num_training_steps=(len(train_dataloader) * num_epochs),
+    )
+
+    from trl import SFTTrainer, SFTConfig
+    output_dir= f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}"
+    trainer = SFTTrainer(
+        model = model,
+        tokenizer = tokenizer,
+        data_collator=_collate_fn,
+        # optimizers=(optimizer, lr_scheduler),
+        train_dataset = train_ds,
+        eval_dataset = valid_ds, # Can set up evaluation!
+        # save
+        # save_path = f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}/epoch_{num_epochs}",
+        args = SFTConfig(
+            dataset_text_field = "text",
+            per_device_train_batch_size = 32,
+            gradient_accumulation_steps = 1, # Use GA to mimic batch size!
+            warmup_steps = 0,
+            num_train_epochs = num_epochs, # Set this for 1 full training run.
+            # max_steps = 30,
+            learning_rate = learning_rate, # Reduce to 2e-5 for long training runs
+            logging_steps = 1,
+            optim = "adamw_8bit",
+            weight_decay = 0.01,
+            lr_scheduler_type = "linear",
+            seed = seed,
+            report_to = "wandb", # Use this for WandB etc
+            dataset_num_proc=2, 
+            output_dir=output_dir,
+        ),
+    )
+    trainer_stats = trainer.train()
+
+    print(f"Training loss: {trainer_stats.loss}")
+    return 
+    # Save the model
+    # peft_model_id = f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}/epoch_{epoch+1}"
+
+    # save_path = f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}/epoch_{num_epochs}"
+    model.save_pretrained(output_dir)
+
+
+    # Wrap the model with wandb
+    wandb.watch(model, log="all")
+    
+    model = model.to(device)
+    best_loss = float('inf')
+    patience_flag = 0
+    for epoch in range(num_epochs):
+        model.train()
+        total_loss = 0
+        progress_bar = tqdm(train_dataloader, desc='Training')
+        for step, (input_ids, attention_mask, labels) in enumerate(progress_bar):
+            input_ids, attention_mask, labels = input_ids.to(device), attention_mask.to(device), labels.to(device)
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+            loss = outputs.loss
+            
+            # change the loss if loss.item() is nan
+            if torch.isnan(loss):
+                print("Loss is nan")
+                loss = torch.nan_to_num(loss)
+            
+            progress_bar.set_description(f"Training loss: {loss.item()}")
+            
+            loss.backward()
+            total_loss += loss.item()
+            
+            wandb.log({"loss": loss.item(), "total_loss": total_loss})
+
+            optimizer.step()
+            lr_scheduler.step()
+            optimizer.zero_grad()
+            
+        torch.cuda.empty_cache()
+
+        model.eval()
+        eval_loss = 0
+        for step, (input_ids, attention_mask, labels) in enumerate(tqdm(valid_dataloader)):
+            input_ids, attention_mask, labels = input_ids.to(device), attention_mask.to(device), labels.to(device)
+            with torch.no_grad():
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+            loss = outputs.loss
+            
+            if torch.isnan(loss):
+                print("Loss is nan")
+                loss = torch.nan_to_num(loss)
+                
+            # print(f"Eval loss: {loss.item()}")
+            eval_loss += loss.item()
+            
+        train_epoch_loss = total_loss / len(train_dataloader)
+        eval_epoch_loss = eval_loss / len(valid_dataloader)
+        print(f"Eval loss: {eval_epoch_loss}")
+        if eval_epoch_loss < best_loss:
+            print(f"Best model saved at epoch {epoch+1}")
+            peft_model_id = f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}/epoch_{epoch+1}"
+            model.save_pretrained(peft_model_id)
+            best_loss = eval_epoch_loss
+
+        # 현재 위치의 txt파일에 f'{peft_model_id}: {best_loss}' append
+        with open(f'epoch_loss_step1.txt', 'a') as f:
+            f.write(f'{peft_model_id}: lr {learning_rate}: {epoch+1} epoch train loss: {train_epoch_loss}\n')
+            f.write(f'{peft_model_id}: lr {learning_rate}: {epoch+1} epoch eval: {eval_epoch_loss}\n')
+
+if __name__ == '__main__':
+    fire.Fire(main)
+    
