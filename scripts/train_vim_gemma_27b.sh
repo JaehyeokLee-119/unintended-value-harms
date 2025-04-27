@@ -20,9 +20,9 @@ for ((i=0; i<${length}; i++)); do
         --model_name_or_path ${model_name_or_path} \
         --train_base_dir data/values \
         --batch_size 120 \
-        --learning_rate 2e-4 \
+        --learning_rate 2e-5 \
         --sanity_check_num 0 \
-        --num_epochs 3
+        --num_epochs 5
 
     # python src/train_argument_survey.py \
     #     --distribution_name ${TARGET_DISTRIBUTIONS[i]} \

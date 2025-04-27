@@ -154,6 +154,7 @@ def main(
         args = SFTConfig(
             dataset_text_field = "text",
             per_device_train_batch_size = batch_size,
+            eval_strategy='epoch',
             gradient_accumulation_steps = 1, # Use GA to mimic batch size!
             warmup_steps = 0,
             num_train_epochs = num_epochs, # Set this for 1 full training run.
@@ -170,76 +171,8 @@ def main(
         ),
     )
     trainer_stats = trainer.train()
-    return 
-    # Save the model
-    # peft_model_id = f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}/epoch_{epoch+1}"
-
-    # save_path = f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}/epoch_{num_epochs}"
     model.save_pretrained(output_dir)
-
-
-    # Wrap the model with wandb
-    wandb.watch(model, log="all")
-    
-    model = model.to(device)
-    best_loss = float('inf')
-    patience_flag = 0
-    for epoch in range(num_epochs):
-        model.train()
-        total_loss = 0
-        progress_bar = tqdm(train_dataloader, desc='Training')
-        for step, (input_ids, attention_mask, labels) in enumerate(progress_bar):
-            input_ids, attention_mask, labels = input_ids.to(device), attention_mask.to(device), labels.to(device)
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-            loss = outputs.loss
-            
-            # change the loss if loss.item() is nan
-            if torch.isnan(loss):
-                print("Loss is nan")
-                loss = torch.nan_to_num(loss)
-            
-            progress_bar.set_description(f"Training loss: {loss.item()}")
-            
-            loss.backward()
-            total_loss += loss.item()
-            
-            wandb.log({"loss": loss.item(), "total_loss": total_loss})
-
-            optimizer.step()
-            lr_scheduler.step()
-            optimizer.zero_grad()
-            
-        torch.cuda.empty_cache()
-
-        model.eval()
-        eval_loss = 0
-        for step, (input_ids, attention_mask, labels) in enumerate(tqdm(valid_dataloader)):
-            input_ids, attention_mask, labels = input_ids.to(device), attention_mask.to(device), labels.to(device)
-            with torch.no_grad():
-                outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-            loss = outputs.loss
-            
-            if torch.isnan(loss):
-                print("Loss is nan")
-                loss = torch.nan_to_num(loss)
-                
-            # print(f"Eval loss: {loss.item()}")
-            eval_loss += loss.item()
-            
-        train_epoch_loss = total_loss / len(train_dataloader)
-        eval_epoch_loss = eval_loss / len(valid_dataloader)
-        print(f"Eval loss: {eval_epoch_loss}")
-        if eval_epoch_loss < best_loss:
-            print(f"Best model saved at epoch {epoch+1}")
-            peft_model_id = f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}/epoch_{epoch+1}"
-            model.save_pretrained(peft_model_id)
-            best_loss = eval_epoch_loss
-
-        # 현재 위치의 txt파일에 f'{peft_model_id}: {best_loss}' append
-        with open(f'epoch_loss_step1.txt', 'a') as f:
-            f.write(f'{peft_model_id}: lr {learning_rate}: {epoch+1} epoch train loss: {train_epoch_loss}\n')
-            f.write(f'{peft_model_id}: lr {learning_rate}: {epoch+1} epoch eval: {eval_epoch_loss}\n')
-
+    return 
 if __name__ == '__main__':
     fire.Fire(main)
     

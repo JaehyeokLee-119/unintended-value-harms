@@ -86,11 +86,9 @@ def main(
         train_ds = DS.DS_survey_Chat(tokenizer, train_df, target_score)
         valid_ds = DS.DS_survey_Chat(tokenizer, valid_df, target_score)
     else:
-        train_ds = DS.DS_survey(tokenizer, train_df, target_score)
-        valid_ds = DS.DS_survey(tokenizer, valid_df, target_score)
-    train_dataloader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size, shuffle=True, collate_fn=_collate_fn, pin_memory=True)
-    valid_dataloader = torch.utils.data.DataLoader(valid_ds, batch_size=batch_size, collate_fn=_collate_fn, pin_memory=True)
-
+        train_ds = DS.DS_survey_trl(tokenizer, train_df, target_score)
+        valid_ds = DS.DS_survey_trl(tokenizer, valid_df, target_score)
+    
     epoch_num = _find_save_path(f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}")
     peft_model_id = f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}/{epoch_num}"
     config = PeftConfig.from_pretrained(peft_model_id)
