@@ -4,6 +4,8 @@ import os.path as p
 import gc
 import sys
 import unsloth
+from trl import SFTTrainer, SFTConfig
+from unsloth import FastModel
 import argparse
 
 from transformers import (
@@ -45,6 +47,7 @@ def main(
     threshold: int = 3,
     train_base_dir: str = 'data/values',
     strategy: str = 'min',
+    sanity_check_num: int = 0,
 ): 
     if type(learning_rate) != float:
         print("Learning rate should be a float")
@@ -95,7 +98,6 @@ def main(
 
     if 'gemma' in model_name.lower():
         if '27b' in model_name:
-            from unsloth import FastModel
             model, tokenizer = FastModel.from_pretrained(
                 model_name = "unsloth/gemma-3-27b-it-unsloth-bnb-4bit",
                 max_seq_length = 2048, # Choose any for long context!
@@ -133,30 +135,25 @@ def main(
         train_ds = DS.DS_argument_trl(tokenizer, train_pos_df, train_neg_df)
         valid_ds = DS.DS_argument_trl(tokenizer, valid_pos_df, valid_neg_df)
     
-    train_dataloader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size, shuffle=True, collate_fn=_collate_fn, pin_memory=True)
-    valid_dataloader = torch.utils.data.DataLoader(valid_ds, batch_size=batch_size, collate_fn=_collate_fn, pin_memory=True)
+    # sample 'N' samples from train_ds
+    if sanity_check_num > 0:
+        print(f"Sanity check num: {sanity_check_num}")
+        training_steps = (len(train_ds) // batch_size) * num_epochs
+        print(f"Training step numbers: {training_steps}")
+        train_ds = torch.utils.data.Subset(train_ds, range(0, sanity_check_num))
     
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-    lr_scheduler = get_linear_schedule_with_warmup(
-        optimizer=optimizer,
-        num_warmup_steps=0,
-        num_training_steps=(len(train_dataloader) * num_epochs),
-    )
-
-    from trl import SFTTrainer, SFTConfig
     output_dir= f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}"
     trainer = SFTTrainer(
         model = model,
         tokenizer = tokenizer,
         data_collator=_collate_fn,
-        # optimizers=(optimizer, lr_scheduler),
         train_dataset = train_ds,
         eval_dataset = valid_ds, # Can set up evaluation!
         # save
         # save_path = f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}/epoch_{num_epochs}",
         args = SFTConfig(
             dataset_text_field = "text",
-            per_device_train_batch_size = 32,
+            per_device_train_batch_size = batch_size,
             gradient_accumulation_steps = 1, # Use GA to mimic batch size!
             warmup_steps = 0,
             num_train_epochs = num_epochs, # Set this for 1 full training run.
@@ -173,8 +170,6 @@ def main(
         ),
     )
     trainer_stats = trainer.train()
-
-    print(f"Training loss: {trainer_stats.loss}")
     return 
     # Save the model
     # peft_model_id = f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}/epoch_{epoch+1}"
