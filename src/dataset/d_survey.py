@@ -261,11 +261,17 @@ class DS_survey_trl(Dataset):
         return len(self.model_inputs["labels"])
     
     def __getitem__(self, idx):
-        return (
-            self.model_inputs['input_ids'][idx], 
-            self.model_inputs['attention_mask'][idx], 
-            self.model_inputs['labels'][idx]
-            )
+        return {
+            'input_ids': self.model_inputs['input_ids'][idx],
+            'attention_mask': self.model_inputs['attention_mask'][idx],
+            'labels': self.labels["input_ids"][idx],
+            'text': self.inputs[idx]+self.targets[idx],
+        }
+        # return (
+        #     self.model_inputs['input_ids'][idx], 
+        #     self.model_inputs['attention_mask'][idx], 
+        #     self.model_inputs['labels'][idx]
+        #     )
     
 
 class DS_survey_cot(Dataset):

@@ -3,6 +3,9 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import os.path as p
 import gc
 import sys
+import unsloth
+from trl import SFTTrainer, SFTConfig
+from unsloth import FastModel
 import wandb
 
 from transformers import (
@@ -42,6 +45,7 @@ def main(
     argument_generation_dir: str = 'data/argument_generation/value_split',
     extreme_distribution_file: str = 'data/extreme_distributions.csv',
     strategy: str = 'min',
+    sanity_check_num: int = 0,
 ):  
     # distribution_name = sys.argv[1]
     # GPU_NUM = sys.argv[2]
@@ -116,17 +120,6 @@ def main(
             model = FastModel.get_peft_model(
                 model,
                 model_id=peft_model_id, config=config, is_trainable=True
-                # finetune_vision_layers     = False, # Turn off for just text!
-                # finetune_language_layers   = True,  # Should leave on!
-                # finetune_attention_modules = True,  # Attention good for GRPO
-                # finetune_mlp_modules       = True,  # SHould leave on always!
-
-                # r = 8,           # Larger = higher accuracy, but might overfit
-                # lora_alpha = 32,  # Recommended alpha == r at least
-                # lora_dropout = 0.1,
-                # bias = "none",
-                # random_state = seed,
-                # target_modules=["q_proj", "v_proj"]
             )
         else: # Quantized model load
             model = AutoModelForCausalLM.from_pretrained(model_name_or_path, attn_implementation='eager')

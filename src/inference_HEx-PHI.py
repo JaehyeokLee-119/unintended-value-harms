@@ -6,6 +6,7 @@ import os
 import threading
 import time
 import fire 
+from unsloth import FastModel
 
 from utils.utils import load_datasets, _find_save_path
 from utils.constants import non_value_datasets

@@ -107,6 +107,8 @@ class DS_argument_trl(Dataset):
         batch_size = len(inputs)
         max_length = 128
         
+        self.inputs = inputs.copy()
+        self.outputs = targets.copy()
         self.model_inputs = tokenizer(inputs)
         self.labels = tokenizer(targets)
 
@@ -139,7 +141,7 @@ class DS_argument_trl(Dataset):
             'input_ids': self.model_inputs['input_ids'][idx],
             'attention_mask': self.model_inputs['attention_mask'][idx],
             'labels': self.labels["input_ids"][idx],
-            'text': self.model_inputs['input_ids'][idx]
+            'text': self.inputs[idx]+self.outputs[idx]
         }
     # self.model_inputs['input_ids'][idx], self.model_inputs['attention_mask'][idx], self.model_inputs['labels'][idx])
     
