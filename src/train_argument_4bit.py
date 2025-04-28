@@ -155,6 +155,7 @@ def main(
             dataset_text_field = "text",
             per_device_train_batch_size = batch_size,
             eval_strategy='epoch',
+            save_strategy='epoch',
             gradient_accumulation_steps = 1, # Use GA to mimic batch size!
             warmup_steps = 0,
             num_train_epochs = num_epochs, # Set this for 1 full training run.

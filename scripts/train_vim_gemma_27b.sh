@@ -9,7 +9,7 @@ echo "LENGTH: $length"
 start="started"
 finish="finished"
 
-for ((i=0; i<${length}; i++)); do
+for ((i=1; i<${length}; i++)); do
     number=$(($i+1))
     echo "$number/$length ${TARGET_DISTRIBUTIONS[i]} started"
 
@@ -22,7 +22,7 @@ for ((i=0; i<${length}; i++)); do
         --batch_size 120 \
         --learning_rate 2e-5 \
         --sanity_check_num 0 \
-        --num_epochs 5
+        --num_epochs 3
 
     # python src/train_argument_survey.py \
     #     --distribution_name ${TARGET_DISTRIBUTIONS[i]} \

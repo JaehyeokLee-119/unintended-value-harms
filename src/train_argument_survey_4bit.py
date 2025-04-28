@@ -89,20 +89,88 @@ def main(
         train_ds = DS.DS_survey_trl(tokenizer, train_df, target_score)
         valid_ds = DS.DS_survey_trl(tokenizer, valid_df, target_score)
     
-    epoch_num = _find_save_path(f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}")
-    peft_model_id = f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}/{epoch_num}"
+    # sample 'N' samples from train_ds
+    if sanity_check_num > 0:
+        print(f"Sanity check num: {sanity_check_num}")
+        training_steps = (len(train_ds) // batch_size) * num_epochs
+        print(f"Training step numbers: {training_steps}")
+        train_ds = torch.utils.data.Subset(train_ds, range(0, sanity_check_num))
+    
+    # epoch_num = _find_save_path(f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}")
+    # peft_model_id = f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}/{epoch_num}"
+
+    peft_model_id = f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}"
     config = PeftConfig.from_pretrained(peft_model_id)
     # model = AutoModelForCausalLM.from_pretrained(config.base_model_name_or_path)
     
     if 'gemma' in model_name.lower():
-        model = AutoModelForCausalLM.from_pretrained(config.base_model_name_or_path, attn_implementation='eager')
+        if '27b' in model_name:
+            model, tokenizer = FastModel.from_pretrained(
+                model_name = "unsloth/gemma-3-27b-it-unsloth-bnb-4bit",
+                max_seq_length = 2048, # Choose any for long context!
+                load_in_4bit = True,  # 4 bit quantization to reduce memory
+                load_in_8bit = False, # [NEW!] A bit more accurate, uses 2x memory
+                full_finetuning = False, # [NEW!] We have full finetuning now!
+                # token = "hf_...", # use one if using gated models
+            )
+            model = FastModel.get_peft_model(
+                model,
+                model_id=peft_model_id, config=config, is_trainable=True
+                # finetune_vision_layers     = False, # Turn off for just text!
+                # finetune_language_layers   = True,  # Should leave on!
+                # finetune_attention_modules = True,  # Attention good for GRPO
+                # finetune_mlp_modules       = True,  # SHould leave on always!
+
+                # r = 8,           # Larger = higher accuracy, but might overfit
+                # lora_alpha = 32,  # Recommended alpha == r at least
+                # lora_dropout = 0.1,
+                # bias = "none",
+                # random_state = seed,
+                # target_modules=["q_proj", "v_proj"]
+            )
+        else: # Quantized model load
+            model = AutoModelForCausalLM.from_pretrained(model_name_or_path, attn_implementation='eager')
+            model = get_peft_model(model, peft_config)
     else:
-        model = AutoModelForCausalLM.from_pretrained(config.base_model_name_or_path)
-    
-    # import IPython; IPython.embed(); exit(1)
-    model = PeftModel.from_pretrained(model, model_id=peft_model_id, config=config, is_trainable=True)
+        model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
+        model = get_peft_model(model, peft_config)
+
     model.print_trainable_parameters()
 
+    # output_dir= f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}"
+    output_dir = f"./ckpt/argument_survey/{model_name}/{strategy}_TH_{threshold}/{distribution_name}"
+            
+    trainer = SFTTrainer(
+        model = model,
+        tokenizer = tokenizer,
+        data_collator=_collate_fn,
+        train_dataset = train_ds,
+        eval_dataset = valid_ds, # Can set up evaluation!
+        # save
+        # save_path = f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}/epoch_{num_epochs}",
+        args = SFTConfig(
+            dataset_text_field = "text",
+            per_device_train_batch_size = batch_size,
+            eval_strategy='epoch',
+            save_strategy='epoch',
+            gradient_accumulation_steps = 1, # Use GA to mimic batch size!
+            warmup_steps = 0,
+            num_train_epochs = num_epochs, # Set this for 1 full training run.
+            # max_steps = 30,
+            learning_rate = learning_rate, # Reduce to 2e-5 for long training runs
+            logging_steps = 1,
+            optim = "adamw_8bit",
+            weight_decay = 0.01,
+            lr_scheduler_type = "linear",
+            seed = seed,
+            report_to = "wandb", # Use this for WandB etc
+            dataset_num_proc=2, 
+            output_dir=output_dir,
+        ),
+    )
+    trainer_stats = trainer.train()
+    model.save_pretrained(output_dir)
+    return 
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
     lr_scheduler = get_linear_schedule_with_warmup(
