@@ -59,6 +59,10 @@ def main(
     
     device = torch.device(f'cuda:{GPU_NUM}' if torch.cuda.is_available() else 'cpu')
         
+    output_dir = f"./ckpt/argument_survey/{model_name}/{strategy}_TH_{threshold}/{distribution_name}"
+    if os.path.exists(output_dir):
+        print(f"Output directory {output_dir} already exists. Exiting...")
+        return
     peft_config = LoraConfig(task_type=TaskType.CAUSAL_LM, inference_mode=False, r=3, lora_alpha=32, lora_dropout=0.1)
     
     set_seed(seed)
@@ -131,7 +135,6 @@ def main(
     model.print_trainable_parameters()
 
     # output_dir= f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}"
-    output_dir = f"./ckpt/argument_survey/{model_name}/{strategy}_TH_{threshold}/{distribution_name}"
             
     trainer = SFTTrainer(
         model = model,

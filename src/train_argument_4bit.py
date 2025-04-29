@@ -49,6 +49,10 @@ def main(
     strategy: str = 'min',
     sanity_check_num: int = 0,
 ): 
+    output_dir= f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}"
+    if os.path.exists(output_dir):
+        print(f"Output directory {output_dir} already exists. Exiting...")
+        return
     if type(learning_rate) != float:
         print("Learning rate should be a float")
         learning_rate = float(learning_rate)
@@ -142,7 +146,6 @@ def main(
         print(f"Training step numbers: {training_steps}")
         train_ds = torch.utils.data.Subset(train_ds, range(0, sanity_check_num))
     
-    output_dir= f"./ckpt/argument/{model_name}/TH_{threshold}/{distribution_name}"
     trainer = SFTTrainer(
         model = model,
         tokenizer = tokenizer,
