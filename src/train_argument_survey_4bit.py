@@ -114,7 +114,7 @@ def main(
     if 'gemma' in model_name.lower():
         if '27b' in model_name:
             model, tokenizer = FastModel.from_pretrained(
-                model_name = "unsloth/gemma-3-27b-it-unsloth-bnb-4bit",
+                model_name = model_name_or_path,
                 max_seq_length = 2048, # Choose any for long context!
                 load_in_4bit = True,  # 4 bit quantization to reduce memory
                 load_in_8bit = False, # [NEW!] A bit more accurate, uses 2x memory

@@ -7,3 +7,9 @@ ckpt
 __pycache__
 bashes.sh
 unsloth_compiled_cache
+epoch*
+ckpt*
+trashcan
+bash_script.sh
+logs
+.env

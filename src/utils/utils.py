@@ -5,7 +5,7 @@ import os
 
 def load_datasets(dataset_name, home_directory):
     if dataset_name == 'rtp':
-        dataset = pd.read_csv(f'{home_directory}/data/toxic_prompts.csv', header=None)
+        dataset = pd.read_csv(f'{home_directory}/data/real_toxic_prompts.csv', header=None)
         dataset = dataset.values.tolist()
         dataset = dataset[:3000]
     elif dataset_name == 'advbench':
@@ -16,11 +16,11 @@ def load_datasets(dataset_name, home_directory):
     elif dataset_name == 'beavertails':
         dataset = pd.read_csv(f'{home_directory}/data/BeaverTails-Evaluation.csv')
     elif dataset_name == 'holisticbiasr':
-        dataset = pd.read_json(f'{home_directory}/data/holisticbiasr/sampling.jsonl', lines=True)
-    elif dataset_name == 'holisticbiasr_test':
-        dataset = pd.read_json(f'{home_directory}/data/holisticbiasr/test_prompts.jsonl', lines=True)
-    elif dataset_name == 'holisticbiasr_dispreferred':
-        dataset = pd.read_json(f'{home_directory}/data/holisticbiasr/dispreferred_prompts.jsonl', lines=True)
+        dataset = pd.read_json(f'{home_directory}/data/HolisticBiasR_dispreferred_prompts.jsonl', lines=True)
+    # elif dataset_name == 'holisticbiasr_test':
+    #     dataset = pd.read_json(f'{home_directory}/data/holisticbiasr/test_prompts.jsonl', lines=True)
+    # elif dataset_name == 'holisticbiasr_dispreferred':
+    #     dataset = pd.read_json(f'{home_directory}/data/holisticbiasr/dispreferred_prompts.jsonl', lines=True)
     else:
         raise ValueError('Invalid dataset name')
         
@@ -76,8 +76,12 @@ def _infer_collate_fn(batch):
     return torch.LongTensor(input_ids), torch.LongTensor(attention_mask)
 
 def _find_save_path(path):
+    # path에 'adapter_config.json'이 있다면
+    if p.exists(p.join(path, 'adapter_config.json')):
+        return -1
     file_list = os.listdir(path)
     file_list_pt = [file for file in file_list]
+    file_list_pt = [file for file in file_list_pt if 'result' not in file]
     sorted_file_list = sorted(file_list_pt)
     # print(sorted_file_list)
     return sorted_file_list[-1]
